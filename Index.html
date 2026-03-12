@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Production Électrique — Hydro-Québec</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Mono', monospace;
+    background: linear-gradient(160deg, #020c14 0%, #041824 60%, #020c14 100%);
+    min-height: 100vh;
+    color: #e0f4ff;
+    padding: 24px 16px;
+  }
+  .container { max-width: 780px; margin: 0 auto; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
+  .live-badge { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #00b4d8; box-shadow: 0 0 8px #00b4d8; animation: pulse 2s ease-in-out infinite; }
+  .live-label { color: #00b4d8; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; }
+  h1 { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800; color: #e0f4ff; letter-spacing: -0.5px; }
+  .subtitle { color: #4a8fa8; font-size: 12px; margin-top: 3px; }
+  .refresh-btn {
+    background: rgba(0,180,216,0.08); border: 1px solid rgba(0,180,216,0.25);
+    border-radius: 8px; color: #00b4d8; padding: 7px 14px; cursor: pointer;
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    font-family: 'DM Mono', monospace; white-space: nowrap;
+  }
+  .refresh-btn:active { background: rgba(0,180,216,0.2); }
+  .kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: rgba(0,180,216,0.05); border: 1px solid rgba(0,180,216,0.15); border-radius: 12px; padding: 14px 16px; }
+  .kpi-label { color: #4a8fa8; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  .kpi-value { color: #e0f4ff; font-size: 20px; font-weight: 500; }
+  .kpi-sub { color: #2d6e85; font-size: 10px; margin-top: 3px; }
+  .mix-card { background: rgba(0,180,216,0.05); border: 1px solid rgba(0,180,216,0.15); border-radius: 12px; padding: 14px 18px; margin-bottom: 16px; }
+  .mix-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .mix-title { color: #4a8fa8; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
+  .mix-date { color: #00b4d8; font-size: 11px; }
+  .mix-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 1px; }
+  .mix-legend { display: flex; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+  .mix-item { display: flex; align-items: center; gap: 5px; }
+  .mix-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .chart-card { background: rgba(0,180,216,0.04); border: 1px solid rgba(0,180,216,0.13); border-radius: 12px; padding: 18px 12px 12px 12px; margin-bottom: 16px; }
+  .chart-title { color: #4a8fa8; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 14px; }
+  .footer { display: flex; justify-content: space-between; color: #2d5e6e; font-size: 10px; margin-top: 4px; }
+  .status { color: #4a8fa8; text-align: center; padding: 60px; font-size: 14px; }
+  .error-msg { color: #f94144; text-align: center; padding: 60px; font-size: 13px; }
+  .tooltip {
+    position: fixed; background: rgba(10,20,30,0.97); border: 1px solid rgba(0,180,216,0.3);
+    border-radius: 8px; padding: 10px 14px; font-size: 11px; color: #e0f4ff;
+    pointer-events: none; display: none; z-index: 100; min-width: 160px;
+  }
+  .tt-date { font-weight: 700; color: #00b4d8; margin-bottom: 6px; font-size: 11px; }
+  .tt-row { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px; }
+  .tt-total { border-top: 1px solid rgba(0,180,216,0.2); margin-top: 4px; padding-top: 4px; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+  .fade-in { animation: fadeIn 0.7s ease forwards; }
+  @media(max-width:500px){ .kpis{grid-template-columns:1fr 1fr} .kpi-value{font-size:16px} h1{font-size:20px} }
+</style>
+</head>
+<body>
+<div class="container fade-in">
+  <div class="header">
+    <div>
+      <div class="live-badge"><div class="live-dot"></div><span class="live-label">En direct</span></div>
+      <h1>Production Électrique</h1>
+      <div class="subtitle">Hydro-Québec · Réseau global</div>
+    </div>
+    <button class="refresh-btn" onclick="loadData()">↻ Actualiser</button>
+  </div>
+  <div id="content"><div class="status">Chargement…</div></div>
+  <div class="footer">
+    <span>Source: Hydro-Québec Open Data API</span>
+    <span id="last-refresh"></span>
+  </div>
+</div>
+<div class="tooltip" id="tooltip">
+  <div class="tt-date" id="tt-date"></div>
+  <div id="tt-rows"></div>
+</div>
+
+<script>
+const API = "https://donnees.hydroquebec.com/api/explore/v2.1/catalog/datasets/production-electricite-quebec/records?limit=48&order_by=date%20asc";
+
+const SOURCES = [
+  { key: "valeurs_hydraulique", label: "Hydraulique", color: "#00b4d8" },
+  { key: "valeurs_eolien",      label: "Éolien",      color: "#90e0ef" },
+  { key: "valeurs_autres",      label: "Autres",      color: "#48cae4" },
+  { key: "valeurs_solaire",     label: "Solaire",     color: "#f9c74f" },
+  { key: "valeurs_thermique",   label: "Thermique",   color: "#f94144" },
+];
+
+function fmt(v) {
+  if (v == null || isNaN(v)) return "—";
+  return v >= 1000 ? (v/1000).toFixed(1)+" GW" : Math.round(v)+" MW";
+}
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString("fr-CA",{hour:"2-digit",minute:"2-digit",timeZone:"America/Toronto"});
+}
+function fmtDateShort(iso) {
+  return new Date(iso).toLocaleDateString("fr-CA",{weekday:"short",month:"short",day:"numeric",timeZone:"America/Toronto"});
+}
+
+async function loadData() {
+  document.getElementById("content").innerHTML = '<div class="status">Chargement…</div>';
+  try {
+    const res = await fetch(API);
+    if (!res.ok) throw new Error("HTTP "+res.status);
+    const json = await res.json();
+    const rows = json.results
+      .filter(r => r.valeurs_total > 0 && r.valeurs_hydraulique != null)
+      .sort((a,b) => new Date(a.date)-new Date(b.date));
+    if (!rows.length) throw new Error("Aucune donnée disponible");
+    render(rows);
+    document.getElementById("last-refresh").textContent =
+      "Mis à jour: "+new Date().toLocaleTimeString("fr-CA");
+  } catch(e) {
+    document.getElementById("content").innerHTML =
+      `<div class="error-msg">⚠️ Erreur: ${e.message}</div>`;
+  }
+}
+
+function render(rows) {
+  const latest = rows[rows.length-1];
+  const total = latest.valeurs_total;
+  const hydroPct = Math.round((latest.valeurs_hydraulique/total)*100);
+
+  let html = `<div class="kpis">
+    ${kpi("Production totale", fmt(total), "dernière mesure")}
+    ${kpi("Hydraulique", fmt(latest.valeurs_hydraulique), hydroPct+"% du total")}
+    ${kpi("Éolien", fmt(latest.valeurs_eolien), "puissance éolienne")}
+  </div>
+  <div class="mix-card">
+    <div class="mix-header">
+      <span class="mix-title">Mix énergétique actuel</span>
+      <span class="mix-date">${fmtDateShort(latest.date)}</span>
+    </div>
+    <div class="mix-bar">`;
+
+  SOURCES.forEach(s => {
+    const pct = (latest[s.key]/total)*100;
+    if (pct > 0.1) html += `<div style="width:${pct}%;background:${s.color}" title="${s.label}: ${pct.toFixed(1)}%"></div>`;
+  });
+
+  html += `</div><div class="mix-legend">`;
+  SOURCES.forEach(s => {
+    const pct = (latest[s.key]/total)*100;
+    html += `<div class="mix-item" style="opacity:${pct<0.1?0.3:1}">
+      <div class="mix-dot" style="background:${s.color}"></div>
+      <span style="color:#4a8fa8;font-size:10px">${s.label}</span>
+      <span style="color:#7fc8d8;font-size:10px">${pct.toFixed(1)}%</span>
+    </div>`;
+  });
+
+  html += `</div></div>
+  <div class="chart-card">
+    <div class="chart-title">Historique de production (MW)</div>
+    <div id="chart-area"></div>
+  </div>`;
+
+  document.getElementById("content").innerHTML = html;
+  drawChart(rows);
+}
+
+function kpi(label, value, sub) {
+  return `<div class="kpi">
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value">${value}</div>
+    <div class="kpi-sub">${sub}</div>
+  </div>`;
+}
+
+function drawChart(rows) {
+  const container = document.getElementById("chart-area");
+  const W = container.clientWidth || 700;
+  const H = 200;
+  const m = {top:4, right:12, bottom:24, left:44};
+  const iW = W-m.left-m.right;
+  const iH = H-m.top-m.bottom;
+
+  const times = rows.map(r => fmtTime(r.date));
+  const x = d3.scalePoint().domain(times).range([0, iW]);
+  const maxVal = d3.max(rows, r => r.valeurs_total)*1.08;
+  const y = d3.scaleLinear().domain([0,maxVal]).range([iH,0]);
+
+  const stackedData = d3.stack()
+    .keys(SOURCES.map(s=>s.key))(
+      rows.map(r => {
+        const o = {_iso: r.date};
+        SOURCES.forEach(s => o[s.key] = r[s.key]||0);
+        return o;
+      })
+    );
+
+  const area = d3.area()
+    .x((d,i) => x(times[i]))
+    .y0(d => y(d[0]))
+    .y1(d => y(d[1]))
+    .curve(d3.curveMonotoneX);
+
+  const svg = d3.select(container).append("svg").attr("width",W).attr("height",H);
+  const defs = svg.append("defs");
+
+  SOURCES.forEach(s => {
+    const g = defs.append("linearGradient").attr("id","grd_"+s.key)
+      .attr("x1","0").attr("y1","0").attr("x2","0").attr("y2","1");
+    g.append("stop").attr("offset","5%").attr("stop-color",s.color).attr("stop-opacity",0.35);
+    g.append("stop").attr("offset","95%").attr("stop-color",s.color).attr("stop-opacity",0.02);
+  });
+
+  const g = svg.append("g").attr("transform",`translate(${m.left},${m.top})`);
+
+  // gridlines
+  y.ticks(4).forEach(t => {
+    g.append("line").attr("x1",0).attr("x2",iW).attr("y1",y(t)).attr("y2",y(t))
+      .attr("stroke","rgba(0,180,216,0.08)").attr("stroke-dasharray","3,3");
+  });
+
+  // areas
+  stackedData.forEach((layer,i) => {
+    const s = SOURCES[i];
+    g.append("path").datum(layer)
+      .attr("fill",`url(#grd_${s.key})`)
+      .attr("stroke",s.color).attr("stroke-width",1.5)
+      .attr("d",area);
+  });
+
+  // x axis ticks
+  const step = Math.ceil(rows.length/5);
+  rows.forEach((r,i) => {
+    if (i%step===0 || i===rows.length-1) {
+      g.append("text").attr("x",x(times[i])).attr("y",iH+16)
+        .attr("fill","#2d6e85").attr("font-size",9).attr("font-family","DM Mono,monospace")
+        .attr("text-anchor","middle").text(times[i]);
+    }
+  });
+
+  // y axis ticks
+  y.ticks(4).forEach(t => {
+    g.append("text").attr("x",-6).attr("y",y(t)+4)
+      .attr("fill","#2d6e85").attr("font-size",9).attr("font-family","DM Mono,monospace")
+      .attr("text-anchor","end").text((t/1000).toFixed(0)+"k");
+  });
+
+  // hover
+  const tooltip = document.getElementById("tooltip");
+  const vline = g.append("line").attr("y1",0).attr("y2",iH)
+    .attr("stroke","rgba(0,180,216,0.5)").attr("stroke-width",1).attr("stroke-dasharray","4,3")
+    .style("display","none");
+
+  g.append("rect").attr("width",iW).attr("height",iH).attr("fill","transparent")
+    .style("cursor","crosshair")
+    .on("mousemove touchmove", function(event) {
+      event.preventDefault();
+      const [mx] = d3.pointer(event);
+      const idx = Math.max(0, Math.min(rows.length-1, Math.round(mx / (iW/(rows.length-1)))));
+      const r = rows[idx];
+      vline.style("display",null).attr("x1",x(times[idx])).attr("x2",x(times[idx]));
+
+      document.getElementById("tt-date").textContent = fmtDateShort(r.date)+" "+times[idx];
+      let rHtml = "";
+      SOURCES.forEach(s => {
+        rHtml += `<div class="tt-row"><span style="color:${s.color}">${s.label}</span><span>${fmt(r[s.key])}</span></div>`;
+      });
+      rHtml += `<div class="tt-row tt-total"><span style="color:#e0f4ff">Total</span><span>${fmt(r.valeurs_total)}</span></div>`;
+      document.getElementById("tt-rows").innerHTML = rHtml;
+
+      const cx = event.touches ? event.touches[0].clientX : event.clientX;
+      const cy = event.touches ? event.touches[0].clientY : event.clientY;
+      tooltip.style.display = "block";
+      tooltip.style.left = Math.min(cx+14, window.innerWidth-175)+"px";
+      tooltip.style.top = Math.max(cy-90, 8)+"px";
+    })
+    .on("mouseleave touchend", () => {
+      tooltip.style.display = "none";
+      vline.style("display","none");
+    });
+}
+
+loadData();
+setInterval(loadData, 5*60*1000);
+</script>
+
+</body>
+</html>
